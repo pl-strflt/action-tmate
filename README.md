@@ -182,6 +182,35 @@ jobs:
         install-dependencies: false
 ```
 
+## CircleCI like tmate session
+
+If you want to set up a tmate session similarily to [how CircleCI does it](https://circleci.com/docs/ssh-access-jobs), you can use the following configuration.
+
+You can insert it at the beggining of your pipeline. It will remain dormant until you [rerun all jobs with the debug logging enabled](https://github.blog/changelog/2022-05-24-github-actions-re-run-jobs-with-debug-logging/).
+
+Then, it will print out the tmate connection string when a session is established but it will not wait for you to connect. Instead, it will proceed with the run and it will wait for 10 minutes after it is complete. If you do not connect within that time, the session will remain open until you disconnect. The disconnection checks will be performed every 10 minutes.
+
+You will be able to connect to the session only if you [use registered public SSH key(s)](#use-registered-public-ssh-keys).
+
+```yaml
+name: CI
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Setup tmate session
+      uses: mxschmitt/action-tmate@v3
+      if: runner.debug == '1'
+      with:
+        check-num-clients: true
+        limit-access-to-actor: true # requires registered public SSH key(s)
+        wait: false
+        wait-in-post: true
+        wait-interval: '600000' # 10 minutes
+    - uses: actions/checkout@v2
+```
+
 ## Continue a workflow
 
 If you want to continue a workflow and you are inside a tmate session, just create a empty file with the name `continue` either in the root directory or in the project directory by running `touch continue` or `sudo touch /continue`.

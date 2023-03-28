@@ -7,7 +7,17 @@ import * as github from "@actions/github"
 import * as tc from "@actions/tool-cache"
 import { Octokit } from "@octokit/rest"
 
-import { execShellCommand, getValidatedInput, getLinuxDistro, useSudoPrefix } from "./helpers"
+import {
+  execShellCommand,
+  getValidatedInput,
+  getLinuxDistro,
+  getTmateExecutablePath,
+  getTmate,
+  getTmateConnectionStrings,
+  showTmateConnectionStrings,
+  useSudoPrefix,
+  waitUntilDebuggingSessionExit,
+} from './helpers'
 
 const TMATE_LINUX_VERSION = "2.4.0"
 
@@ -21,18 +31,14 @@ const TMATE_ARCH_MAP = {
   x64: 'amd64',
 };
 
-/** @param {number} ms */
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
 export async function run() {
   try {
-    let tmateExecutable = "tmate"
     if (core.getInput("install-dependencies") !== "false") {
       core.debug("Installing dependencies")
       if (process.platform === "darwin") {
         await execShellCommand('brew install tmate');
       } else if (process.platform === "win32") {
-        await execShellCommand('pacman -S --noconfirm tmate');
+        await execShellCommand('pacman -Sy --noconfirm tmate');
       } else {
         const optionalSudoPrefix = useSudoPrefix() ? "sudo " : "";
         const distro = await getLinuxDistro();
@@ -56,7 +62,7 @@ export async function run() {
         }
         const tmateReleaseTar = await tc.downloadTool(`https://github.com/tmate-io/tmate/releases/download/${TMATE_LINUX_VERSION}/tmate-${TMATE_LINUX_VERSION}-static-linux-${tmateArch}.tar.xz`);
         const tmateDir = path.join(os.tmpdir(), "tmate")
-        tmateExecutable = path.join(tmateDir, "tmate")
+        const tmateExecutable = path.join(tmateDir, "tmate")
 
         if (fs.existsSync(tmateExecutable))
           fs.unlinkSync(tmateExecutable)
@@ -67,9 +73,8 @@ export async function run() {
       core.debug("Installed dependencies successfully");
     }
 
-    if (process.platform === "win32") {
-      tmateExecutable = 'CHERE_INVOKING=1 tmate'
-    } else {
+
+    if (process.platform !== "win32") {
       core.debug("Generating SSH keys")
       fs.mkdirSync(path.join(os.homedir(), ".ssh"), { recursive: true })
       try {
@@ -97,7 +102,7 @@ export async function run() {
       newSessionExtra = `-a "${authorizedKeysPath}"`
     }
 
-    const tmate = `${tmateExecutable} -S /tmp/tmate.sock`;
+    const tmate = getTmate()
 
     // Work around potential `set -e` commands in `~/.profile` (looking at you, `setup-miniconda`!)
     await execShellCommand(`echo 'set +e' >/tmp/tmate.bashrc`);
@@ -127,41 +132,13 @@ export async function run() {
     await execShellCommand(`${tmate} wait tmate-ready`);
     core.debug("Created new session successfully")
 
-    core.debug("Fetching connection strings")
-    const tmateSSH = await execShellCommand(`${tmate} display -p '#{tmate_ssh}'`);
-    const tmateWeb = await execShellCommand(`${tmate} display -p '#{tmate_web}'`);
-
-    core.debug("Entering main loop")
-    while (true) {
-      if (tmateWeb) {
-        core.info(`Web shell: ${tmateWeb}`);
-      }
-      core.info(`SSH: ${tmateSSH}`);
-
-      if (continueFileExists()) {
-        core.info("Exiting debugging session because the continue file was created")
-        break
-      }
-
-      if (didTmateQuit()) {
-        core.info("Exiting debugging session 'tmate' quit")
-        break
-      }
-
-      await sleep(5000)
+    if (core.getInput('wait') === 'true') {
+      await waitUntilDebuggingSessionExit()
+    } else {
+      const [tmateSSH, tmateWeb] = await getTmateConnectionStrings()
+      showTmateConnectionStrings(tmateSSH, tmateWeb)
     }
-
   } catch (error) {
     core.setFailed(error);
   }
-}
-
-function didTmateQuit() {
-  const tmateSocketPath = process.platform === "win32" ? "C:/msys64/tmp/tmate.sock" : "/tmp/tmate.sock"
-  return !fs.existsSync(tmateSocketPath)
-}
-
-function continueFileExists() {
-  const continuePath = process.platform === "win32" ? "C:/msys64/continue" : "/continue"
-  return fs.existsSync(continuePath) || fs.existsSync(path.join(process.env.GITHUB_WORKSPACE, "continue"))
 }

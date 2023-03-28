@@ -5,9 +5,12 @@
   "description": "Debug your GitHub Actions using tmate and get an interactive SSH session into your runner.",
   "main": "lib/main.js",
   "scripts": {
-    "start": "node src/index.js",
-    "build": "ncc build src/main.js -o lib",
-    "test": "GITHUB_EVENT_PATH= jest"
+    "start": "node src/main.js",
+    "build:main": "ncc build src/main.js -o tmp && mv tmp/index.js lib/main.js",
+    "build:post": "ncc build src/post.js -o tmp && mv tmp/index.js lib/post.js",
+    "build": "npm run build:main && npm run build:post",
+    "test": "GITHUB_EVENT_PATH= jest",
+    "fmt": "prettier --write 'src/**/*.js'"
   },
   "repository": {
     "type": "git",
@@ -32,6 +35,7 @@
     "@vercel/ncc": "^0.33.3",
     "babel-jest": "^27.0.6",
     "jest": "^27.0.6",
-    "jest-circus": "^27.0.6"
+    "jest-circus": "^27.0.6",
+    "prettier": "2.7.1"
   }
 }
